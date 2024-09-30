@@ -4,7 +4,8 @@ import random
 import typer
 from typing import Optional, List
 from rich import print
-
+from rich.syntax import Syntax
+import pyperclip
 
 def find_files_with_keyword(
     directory: str,
@@ -28,7 +29,6 @@ def find_files_with_keyword(
 
     return matching_files
 
-
 def contains_keyword(file_path: str, keyword: str) -> bool:
     try:
         with open(file_path, "r", encoding="utf-8") as file:
@@ -37,7 +37,6 @@ def contains_keyword(file_path: str, keyword: str) -> bool:
     except Exception as e:
         typer.echo(f"Error reading file {file_path}: {e}", err=True)
         return False
-
 
 def convert_path_to_module(file_path: str, base_directory: str) -> str:
     rel_path = os.path.relpath(file_path, base_directory)
@@ -49,7 +48,6 @@ def convert_path_to_module(file_path: str, base_directory: str) -> str:
 
     return full_module_path
 
-
 def get_file_line_count(file_path: str) -> int:
     try:
         with open(file_path, "r", encoding="utf-8") as file:
@@ -57,7 +55,6 @@ def get_file_line_count(file_path: str) -> int:
     except Exception as e:
         typer.echo(f"Error reading file {file_path}: {e}", err=True)
         return 0
-
 
 def select_random_files(matching_files: list, max_lines: int = 15000):
     selected_files = []
@@ -76,14 +73,15 @@ def select_random_files(matching_files: list, max_lines: int = 15000):
 
     return selected_files, total_lines
 
-
 def generate_import_string(selected_files: list) -> str:
     import_lines = [f"import {file}" for file in selected_files]
     code_line = "%code " + " ".join(selected_files)
     return "\n".join(import_lines + ["", code_line])
 
+"""
+"""
 
-def copy_context(
+def copy_import(
     directory: str = typer.Argument(..., help="Directory to search for Python files"),
     keyword: Optional[str] = typer.Option(
         None, help="Keyword to search for in file names and contents"
@@ -96,7 +94,7 @@ def copy_context(
     ),
 ):
     """
-    Select Python files containing a keyword within a line limit, excluding specified keywords.
+    Generate import strings from selected Python files and copy them to clipboard.
     """
     matching_files = find_files_with_keyword(directory, keyword, exclude_keywords)
     if max_lines:
@@ -104,6 +102,10 @@ def copy_context(
     else:
         selected_files = [file[0].strip(".") for file in matching_files]
         total_lines = sum(get_file_line_count(file[1]) for file in matching_files)
+
+    if not selected_files:
+        typer.echo("선택된 파일이 없습니다.", err=True)
+        raise typer.Exit()
 
     result_string = generate_import_string(selected_files)
 
@@ -117,11 +119,59 @@ def copy_context(
     print("\n[bold]생성된 import 문자열:[/bold]")
     print(result_string)
 
-    import pyperclip
-
     pyperclip.copy(result_string)
     print("\n[green]생성된 import 문자열이 클립보드에 복사되었습니다.[/green]")
 
+def copy_context(
+    directory: str = typer.Argument(..., help="Directory to search for Python files"),
+    keyword: Optional[str] = typer.Option(
+        None, help="Keyword to search for in file names and contents"
+    ),
+    exclude: Optional[List[str]] = typer.Option(
+        None, help="Keywords to exclude from file paths (e.g. migrations)"
+    ),
+    max_lines: Optional[int] = typer.Option(
+        15000, help="Maximum total lines of selected files"
+    ),
+):
+    """
+    Select Python files and copy their entire content as context to clipboard.
+    """
+    matching_files = find_files_with_keyword(directory, keyword, exclude)
+    if max_lines:
+        selected_files, total_lines = select_random_files(matching_files, max_lines)
+    else:
+        selected_files = [file for file, path in matching_files]
+        total_lines = sum(get_file_line_count(path) for _, path in matching_files)
 
-if __name__ == "__main__":
-    typer.run(copy_context)
+    if not selected_files:
+        typer.echo("선택된 파일이 없습니다.", err=True)
+        raise typer.Exit()
+
+    context_strings = []
+    for module, path in matching_files:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            header = f"# {path}"
+            context_strings.append(header)
+            context_strings.append(content)
+        except Exception as e:
+            typer.echo(f"파일을 읽는 중 오류 발생 {path}: {e}", err=True)
+
+    combined_context = "\n\n".join(context_strings)
+
+    print(f"[bold]direcory:[/bold] {directory}")
+    print(f"[bold]keyword  :[/bold] {keyword}")
+    print(
+        f"[bold]exclude  :[/bold] {', '.join(exclude) if exclude else 'None'}"
+    )
+    print(f"[bold]선택된 파일 수:[/bold] {len(selected_files)}")
+    for file, path in matching_files:
+        print(f"  - {file} ({get_file_line_count(path)} lines)")
+    
+    print(f"[bold]총 줄 수:[/bold] {total_lines}")
+    print("\n[bold]생성된 컨텍스트 문자열:[/bold]", len(combined_context))
+
+    pyperclip.copy(combined_context)
+    print("\n[green]생성된 컨텍스트 문자열이 클립보드에 복사되었습니다.[/green]")
