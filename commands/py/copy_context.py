@@ -93,6 +93,35 @@ def generate_import_string(selected_files: list) -> str:
 """
 
 
+def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
+    """Count the number of tokens in a text string."""
+    try:
+        encoding = tiktoken.encoding_for_model(model)
+        return len(encoding.encode(text))
+    except Exception as e:
+        typer.echo(f"Error counting tokens: {e}", err=True)
+        return 0
+
+
+def calculate_cost(token_count: int, cost_per_million: float = 3.0) -> float:
+    """Calculate the cost for the given number of tokens."""
+    return (token_count / 1_000_000) * cost_per_million
+
+
+def generate_token_cost_summary(text: str) -> str:
+    """Generate a summary of token count and cost."""
+    token_count = count_tokens(text)
+    cost = calculate_cost(token_count)
+
+    return f"""[bold]Token 분석:[/bold]
+예상 input 토큰 수: {token_count:,} tokens
+예상 비용 ($3 per 1M tokens): ${cost:,.2f}"""
+
+
+"""
+"""
+
+
 def copy_import(
     directory: str = typer.Argument(..., help="Directory to search for Python files"),
     keyword: Optional[str] = typer.Option(
@@ -133,31 +162,6 @@ def copy_import(
 
     pyperclip.copy(result_string)
     print("\n[green]생성된 import 문자열이 클립보드에 복사되었습니다.[/green]")
-
-
-def count_tokens(text: str, model: str = "gpt-3.5-turbo") -> int:
-    """Count the number of tokens in a text string."""
-    try:
-        encoding = tiktoken.encoding_for_model(model)
-        return len(encoding.encode(text))
-    except Exception as e:
-        typer.echo(f"Error counting tokens: {e}", err=True)
-        return 0
-
-
-def calculate_cost(token_count: int, cost_per_million: float = 3.0) -> float:
-    """Calculate the cost for the given number of tokens."""
-    return (token_count / 1_000_000) * cost_per_million
-
-
-def generate_token_cost_summary(text: str) -> str:
-    """Generate a summary of token count and cost."""
-    token_count = count_tokens(text)
-    cost = calculate_cost(token_count)
-
-    return f"""[bold]Token 분석:[/bold]
-예상 input 토큰 수: {token_count:,} tokens
-예상 비용 ($3 per 1M tokens): ${cost:,.2f}"""
 
 
 def copy_context(
@@ -217,3 +221,77 @@ def copy_context(
 
     pyperclip.copy(combined_context)
     print("\n[green]생성된 컨텍스트 문자열이 클립보드에 복사되었습니다.[/green]")
+
+
+def save_context(
+    directory: str = typer.Argument(..., help="Directory to search for Python files"),
+    output_file: str = typer.Option(
+        ..., "--output", "-o", help="Output file path to save the context"
+    ),
+    keyword: Optional[str] = typer.Option(
+        None, help="Keyword to search for in file names and contents"
+    ),
+    exclude: Optional[str] = typer.Option(
+        None, help="Keywords to exclude from file paths (e.g. migrations)"
+    ),
+    max_lines: Optional[int] = typer.Option(
+        15000, help="Maximum total lines of selected files"
+    ),
+):
+    """
+    Select Python files and save their entire content as context to a file.
+    """
+    if "," in (exclude or []):
+        exclude = exclude.split(",")
+
+    matching_files = find_files_with_keyword(directory, keyword, exclude)
+    if max_lines:
+        selected_files, total_lines = select_random_files(matching_files, max_lines)
+    else:
+        selected_files = matching_files
+        total_lines = sum(get_file_line_count(path) for _, path in matching_files)
+
+    if not selected_files:
+        typer.echo("선택된 파일이 없습니다.", err=True)
+        raise typer.Exit()
+
+    context_strings = []
+    for module, path in selected_files:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            header = f"# {path}"
+            context_strings.append(header)
+            context_strings.append(content)
+        except Exception as e:
+            typer.echo(f"파일을 읽는 중 오류 발생 {path}: {e}", err=True)
+
+    combined_context = "\n\n".join(context_strings)
+
+    # Save to file
+    try:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(combined_context)
+    except Exception as e:
+        typer.echo(f"파일 저장 중 오류 발생 {output_file}: {e}", err=True)
+        raise typer.Exit()
+
+    print(f"[bold]directory:[/bold] {directory}")
+    print(f"[bold]keyword  :[/bold] {keyword}")
+    print(f"[bold]exclude  :[/bold] {', '.join(exclude) if exclude else 'None'}")
+    print(f"[bold]선택된 파일 수:[/bold] {len(selected_files)}")
+    for file, path in selected_files:
+        print(f"  - {file} ({get_file_line_count(path)} lines)")
+
+    print(f"[bold]총 줄 수:[/bold] {total_lines}")
+    print(f"\n[bold]저장된 파일:[/bold] {output_file}")
+    print(f"[bold]저장된 컨텍스트 크기:[/bold] {len(combined_context)} bytes")
+
+    # Add token analysis
+    print("\n" + generate_token_cost_summary(combined_context))
+
+    print(f"\n[green]컨텍스트가 '{output_file}'에 저장되었습니다.[/green]")
+
+
+"""
+"""
