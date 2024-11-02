@@ -10,6 +10,17 @@ from rich import print
 from rich.syntax import Syntax
 
 
+def has_any_exclude_keywords(item: str, exclude_keywords: Optional[List[str]]) -> bool:
+    if not exclude_keywords:
+        return False
+
+
+    if any(keyword in item for keyword in exclude_keywords):
+        return True
+
+    return False
+
+
 def find_files_with_keyword(
     directory: str,
     keyword: Optional[str] = None,
@@ -17,13 +28,13 @@ def find_files_with_keyword(
 ) -> list:
     matching_files = []
     for root, dirs, files in os.walk(directory):
-        if exclude_keywords:
-            dirs[:] = [d for d in dirs if not any(kw in d for kw in exclude_keywords)]
         for file in files:
             if file.endswith(".py"):
                 full_path = os.path.join(root, file)
-                if exclude_keywords and any(kw in full_path for kw in exclude_keywords):
+
+                if has_any_exclude_keywords(full_path, exclude_keywords):
                     continue
+
                 if keyword and not contains_keyword(full_path, keyword):
                     continue
 
@@ -181,6 +192,8 @@ def copy_context(
     """
     if "," in (exclude or []):
         exclude = exclude.split(",")
+    elif exclude:
+        exclude = [exclude]
 
     matching_files = find_files_with_keyword(directory, keyword, exclude)
     if max_lines:
